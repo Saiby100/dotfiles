@@ -29,25 +29,28 @@ gui:
   showNumstatInFilesView: true
   nerdFontsVersion: "3"
   scrollHeight: 4
-  # Theme — matches the pink/cyan prompt (#de9dac / #70e9ff).
+  # Theme — onedark, same palette as tmux/Neovim/ghostty. Blue is structure, so
+  # the focused panel border is the blue the tmux session cap and active pane
+  # border already use; the unfocused border is that blue bled into the
+  # background (#324456), which is what tmux draws around inactive panes.
   theme:
     activeBorderColor:
-      - "#70e9ff"
+      - "#61afef"
       - bold
     inactiveBorderColor:
-      - "#555568"
+      - "#324456"
     selectedLineBgColor:
-      - "#324a5e"
+      - "#3e4452"
     selectedRangeBgColor:
-      - "#324a5e"
+      - "#3e4452"
     optionsTextColor:
-      - "#70e9ff"
+      - "#61afef"
     cherryPickedCommitBgColor:
-      - "#3a2a3a"
+      - "#3a2f45"
     cherryPickedCommitFgColor:
-      - "#de9dac"
+      - "#c678dd"
     unstagedChangesColor:
-      - "#de9dac"
+      - "#e06c75"
 git:
   # Use delta for syntax-highlighted, word-level diffs inside lazygit.
   pagers:

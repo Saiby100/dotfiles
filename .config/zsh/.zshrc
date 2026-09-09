@@ -1,7 +1,7 @@
 # Prompt — custom git status via git_remote_status() defined below.
 setopt prompt_subst
-PROMPT=' %B%F{#de9dac}%~%b
- %B$(git_remote_status)%b%F{#70e9ff}%B❯%b%f '
+PROMPT=' %B%F{#61afef}%~%b
+ %B$(git_remote_status)%b%F{#56b6c2}%B❯%b%f '
 
 # Custom Variables
 export EDITOR=vim
@@ -39,12 +39,12 @@ function git_remote_status() {
       local local_rev=$(git rev-parse @ 2>/dev/null)
       local remote_rev=$(git rev-parse @{u} 2>/dev/null)
       if [[ $local_rev == $remote_rev ]]; then
-        echo "%F{#70e9ff}$branch⎇ %f"  # In sync with upstream
+        echo "%F{#98c379}$branch⎇ %f"  # In sync with upstream
       else
-        echo "%F{red}$branch⎇ %f"  # Ahead / behind / diverged
+        echo "%F{#e06c75}$branch⎇ %f"  # Ahead / behind / diverged
       fi
     elif [[ -n $branch ]]; then
-      echo "%F{yellow}$branch⎇ %f"  # Local only — no upstream yet
+      echo "%F{#e5c07b}$branch⎇ %f"  # Local only — no upstream yet
     fi
   fi
 }

@@ -183,7 +183,7 @@ list() {
     | awk -v searching="$1" -v foldfile="$FOLD_FILE" -v markfile="$MARK_FILE" \
           -v srcpane="p:$SRC_PANE" \
           -v csess="$C_BLUE$C_BOLD" -v cwin="$C_FG$C_BOLD" -v cpane="$C_FG" \
-          -v cmuted="$C_MUTED" -v ccur="$C_GREEN" -v cmark="$C_YELLOW" \
+          -v cmuted="$C_MUTED" -v ccur="$C_BLUE" -v cmark="$C_YELLOW" \
           -v cwait="$C_YELLOW" -v cdone="$C_GREEN" \
           -v canc="$C_BLUE" -v coff="$C_OFF" "$TREE_AWK"
 }
