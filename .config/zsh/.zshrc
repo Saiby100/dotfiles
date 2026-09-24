@@ -160,5 +160,14 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 
+# Cloudflare Workers AI credentials for image generation. The values live in the
+# macOS Keychain, not in this file, because this repo is public. Add them with
+# `security add-generic-password -a "$USER" -s <name> -w`. macOS-only, since
+# `security` doesn't exist on Linux.
+if [[ "$(uname)" == Darwin ]]; then
+  export CF_ACCOUNT_ID="$(security find-generic-password -a "$USER" -s CF_ACCOUNT_ID -w 2>/dev/null)"
+  export CF_API_TOKEN="$(security find-generic-password -a "$USER" -s CF_API_TOKEN -w 2>/dev/null)"
+fi
+
 # Machine-local overrides — keep this last so it can override anything above.
 [ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
