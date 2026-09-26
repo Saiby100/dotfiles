@@ -14,9 +14,10 @@ mkdir -p "$HOME/.claude"
 ln -sf "$REPO_DIR/.claude/statusline-command.sh" "$HOME/.claude/statusline-command.sh"
 ln -sf "$REPO_DIR/.claude/tmux-claude-state.sh" "$HOME/.claude/tmux-claude-state.sh"
 
-# Skills are ours alone and Claude never rewrites them, so the whole dir can be
-# linked. Unlike the loop below this never deletes what is in the way: a real
-# non-empty skills/ dir holds skills that aren't tracked here.
+# Link the whole skills dir so new skills need no re-run. Claude Code writes its
+# account-synced skills into skills/synced/, which .gitignore keeps out. Unlike
+# the loop below this never deletes what is in the way: a real non-empty
+# skills/ dir holds skills that aren't tracked here.
 CLAUDE_SKILLS="$HOME/.claude/skills"
 if [ -d "$CLAUDE_SKILLS" ] && [ ! -L "$CLAUDE_SKILLS" ] && ! rmdir "$CLAUDE_SKILLS" 2>/dev/null; then
   echo "! $CLAUDE_SKILLS is a non-empty real directory — move its contents into" >&2

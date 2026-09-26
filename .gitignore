@@ -4,3 +4,6 @@
 
 # Machine-local zsh overrides (sourced last by .zshrc)
 .zshrc.local
+
+# Claude Code caches account-synced skills here, through the ~/.claude/skills link
+.claude/skills/synced/
