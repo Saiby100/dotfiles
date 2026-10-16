@@ -23,12 +23,10 @@ fill_col() {
   fi
 }
 
+# A one-character gauge: eight block heights, ▁ at 0% up to █ at 100%.
 bar_seg() {
-  local pct=$1 label=$2 col=$3 i bar=""
-  for i in $(seq 1 10); do
-    if [ "$i" -le $(( pct / 10 )) ]; then bar="${bar}█"; else bar="${bar}░"; fi
-  done
-  printf '\033[38;2;%sm%s %s\033[0m' "$col" "$bar" "$label"
+  local pct=$1 label=$2 col=$3 blocks=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
+  printf '\033[38;2;%sm%s %s\033[0m' "$col" "${blocks[$(( pct * 7 / 100 ))]}" "$label"
 }
 
 # --- Context indicator -----------------------------------------------------
