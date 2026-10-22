@@ -590,6 +590,7 @@ header=':N row  n new  r rename  x kill  m mark  M move marked  U unmark  / sear
 
 out=$(list | fzf \
   --ansi \
+  --padding=1,3 \
   --no-sort \
   --layout=reverse \
   --delimiter="$TAB" \
