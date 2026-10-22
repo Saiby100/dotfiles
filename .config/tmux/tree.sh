@@ -384,14 +384,11 @@ POS_FILE="${TMPDIR:-/tmp}/tmux-tree-pos"
 # Always writes: an empty transform leaves the cursor where the reload put it,
 # which is the top. $2 is the row's zero-based index, so +1 is the 1-based
 # position pos() wants. h on a pane is the exception — it closes the window
-# above, which sits exactly pane_index rows up. Marking goes the other way: m
-# steps down a row so a run of panes can be marked in sequence. fzf clamps a
-# pos() past the end, so the last row needs no special case.
+# above, which sits exactly pane_index rows up.
 save_pos() {
   _off=0
   case $3:$1 in
     collapse:p:*) _off=$(tmux display-message -p -t "${1#p:}" '#{pane_index}' 2>/dev/null) || _off=0 ;;
-    mark:*)       _off=-1 ;;
   esac
   printf 'pos(%d)' "$(($2 + 1 - _off))" > "$POS_FILE"
 }
