@@ -582,11 +582,22 @@ rm -f "$POS_FILE" "$PEND_FILE"
 # alias it to. Enter and esc mean different things in different modes, so both
 # ask the script which it is.
 #
+# The popup's border is fzf's, not tmux's (display-popup -B in .tmux.conf):
+# tmux draws its border mid-cell, leaving a strip of popup outside the line,
+# while thinblock's characters sit on the cells' outer edge. Read here, once,
+# since only this top-level run starts fzf. The preview keeps the grey it had
+# before, as it would otherwise inherit the purple.
+IFS="$TAB" read -r _purple _muted <<EOF
+$(tmux display-message -p "#{@purple}${TAB}#{@muted}")
+EOF
+
 # The header lists only the keys you would not guess.
 header=':N row  n new  r rename  x kill  m mark  M move marked  U unmark  / search'
 
 out=$(list | fzf \
   --ansi \
+  --border=thinblock \
+  --color="border:$_purple,preview-border:$_muted" \
   --padding=1,3 \
   --no-sort \
   --layout=reverse \
