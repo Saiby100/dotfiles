@@ -3,11 +3,16 @@ name: commit
 description: Commit only task-related changes (Claude's + user's) with repo commit conventions, one commit per task. Use whenever committing changes, whether the user asks or a task calls for a commit.
 user-invocable: true
 allowed-tools: Bash, Read, Grep, Glob
+argument-hint: "[--push]"
 ---
 
 # Commit
 
 Commit the changes you made, plus any related changes the user made as part of the same task or issue. Exclude unrelated modifications in the working tree.
+
+## Arguments
+
+- `--push` — after committing, push the current branch. Without this flag, push is false: do not push.
 
 ## Steps
 
@@ -25,10 +30,11 @@ Commit the changes you made, plus any related changes the user made as part of t
 7. Commit using a HEREDOC for the message. Append `Co-Authored-By: Claude <Model> <noreply@anthropic.com>`, where `<Model>` is the model you are actually running as (e.g. `Opus 5`) — do not copy a hardcoded version from this file.
 8. Repeat steps 5–7 for each remaining commit.
 9. Run `git status` after committing to verify success.
+10. **Only if `--push` was passed:** run `git push`. If the branch has no upstream, use `git push -u origin <branch>`. Never force push. If the push fails, report the error and stop.
 
 ## Rules
 
-- Do NOT push unless the user explicitly asks.
+- Do NOT push unless `--push` was passed or the user explicitly asks.
 - Do NOT amend existing commits unless the user explicitly asks.
 - Do NOT commit files that may contain secrets (`.env`, credentials, tokens).
 - If a pre-commit hook fails, fix the issue and create a NEW commit — do not amend.
