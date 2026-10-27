@@ -41,7 +41,7 @@ by hand is — follow "Matching a picture" below.
    print(c.save("<absolute path>/resources/<name>.svg", preview=True))
    ```
    Run it with `python3`, saving to an absolute path. Plain Python only — nothing to install.
-3. **Look at the result.** `preview=True` writes a PNG copy to the temp folder and prints its
+3. **Look at the result.** `preview=True` writes a PNG copy to `~/Pictures/Draw` and prints its
    path. Open it with the Read tool and check it: labels readable and not overlapping, nothing
    cut off at the edges, measurements match the instructions. Fix and re-run until it's right.
    - **Matching a picture?** See "Matching a picture" below.

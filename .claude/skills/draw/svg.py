@@ -22,6 +22,9 @@ import subprocess
 import tempfile
 from xml.sax.saxutils import escape
 
+# Where preview PNGs are written.
+PREVIEW_FOLDER = os.path.expanduser("~/Pictures/Draw")
+
 # Colour sets that look good together. Each is dark-to-light or a loose group.
 PALETTES = {
     "earth":  ["#5b3a29", "#8c5a3c", "#c08552", "#dab49d", "#f3e9dc"],
@@ -418,7 +421,7 @@ class Canvas:
                 f'viewBox="0 0 {self.width} {self.height}">\n{defs}\n{under}{body}\n{over}</svg>\n')
 
     def save(self, path, preview=False, preview_background=None):
-        """Write the SVG. With preview=True, also write a PNG copy to the temp folder and
+        """Write the SVG. With preview=True, also write a PNG copy to ~/Pictures/Draw and
         return its path, so it can be looked at. preview_background (e.g. "#888") puts a
         colour behind the preview only - use it for see-through drawings, which otherwise
         look like they sit on white. If a reference picture is set, an overlay preview with
@@ -432,7 +435,8 @@ class Canvas:
             f.write(self.to_string())
         if not preview:
             return path
-        folder = tempfile.mkdtemp(prefix="draw-preview-")
+        folder = PREVIEW_FOLDER
+        os.makedirs(folder, exist_ok=True)
         name = os.path.basename(path)
         out = self._render(self.to_string(preview_background), os.path.join(folder, name + ".png"))
         print(f"preview: {out}" if out else "preview failed")
@@ -443,7 +447,7 @@ class Canvas:
         return out
 
     def _render(self, svg_text, png):
-        src = png[:-4] + ".src.svg"
+        src = os.path.join(tempfile.mkdtemp(prefix="draw-src-"), os.path.basename(png)[:-4] + ".svg")
         with open(src, "w", encoding="utf-8") as f:
             f.write(svg_text)
         browser = _find_browser()
