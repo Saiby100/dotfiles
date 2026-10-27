@@ -47,7 +47,7 @@ by hand is — follow "Matching a picture" below.
    - **Matching a picture?** See "Matching a picture" below.
    - **See-through drawing?** Pass `preview_background="#888"` to `save` so the preview isn't
      on white, where pale colours vanish. Check on the background it will really sit on too.
-4. **Save it** and delete the script — only the `.svg` is kept.
+4. **Save it.** Leave the script in the scratchpad — macOS clears it from `/tmp` after a few days.
    - For a note or document: `resources/<name>.svg` next to it, embedded with
      `![description](resources/<name>.svg)`. Only add the embed when the user (or the skill
      that called this one) has said to update that file; otherwise say where it is.
