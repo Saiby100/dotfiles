@@ -13,6 +13,7 @@ vim.opt.mouse = "a"
 vim.opt.textwidth = 80
 vim.opt.clipboard = "unnamedplus" -- use system clipboard
 vim.opt.scrolloff = 8
+vim.opt.smoothscroll = true       -- scroll wrapped lines one screen row at a time
 vim.opt.incsearch = true
 vim.opt.hlsearch = true
 vim.opt.fixendofline = true       -- insertFinalNewline
