@@ -7,3 +7,6 @@
 
 # Claude Code caches account-synced skills here, through the ~/.claude/skills link
 .claude/skills/synced/
+
+# Python bytecode — written when the draw skill imports its helpers
+__pycache__/
