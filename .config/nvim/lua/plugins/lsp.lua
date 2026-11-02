@@ -96,7 +96,7 @@ return {
 			})
 
 			-- Start the installed servers
-			vim.lsp.enable({ "ts_ls", "lua_ls", "html", "cssls", "jsonls", "yamlls", "bashls" })
+			vim.lsp.enable({ "ts_ls", "lua_ls", "html", "cssls", "jsonls", "yamlls", "bashls", "dartls" })
 		end,
 	},
 
