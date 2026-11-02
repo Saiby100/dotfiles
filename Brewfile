@@ -13,8 +13,6 @@ brew "ripgrep"                  # Telescope find_files / live_grep need it
 brew "tree-sitter-cli"          # nvim-treesitter compiles parsers with it
 brew "git-delta"                # lazygit diff pager (syntax-highlighted diffs)
 brew "fzf"                      # prefix+w tmux tree popup (.config/tmux/tree.sh)
-brew "tailscale"                # mesh VPN (`ts` alias); ships the tailscaled
-                                # LaunchDaemon: sudo brew services start tailscale
 brew "autojump"                 # directory jumping; sourced by .zshrc
 brew "zsh-autosuggestions"      # sourced by .zshrc
 brew "zsh-syntax-highlighting"  # sourced by .zshrc (must load last)

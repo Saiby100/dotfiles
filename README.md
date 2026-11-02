@@ -9,7 +9,7 @@ Install these before running the setup script.
 ### macOS (Homebrew)
 
 ```sh
-brew install neovim tmux lazygit ghostty ripgrep tree-sitter-cli git-delta fzf tailscale
+brew install neovim tmux lazygit ghostty ripgrep tree-sitter-cli git-delta fzf
 brew install --cask font-jetbrains-mono-nerd-font
 ```
 
@@ -27,7 +27,6 @@ sudo apt install neovim tmux zsh ripgrep git-delta
 - [tree-sitter CLI](https://github.com/tree-sitter/tree-sitter) — nvim-treesitter's `main` branch compiles parsers with it; without it syntax highlighting silently fails
 - [fzf](https://github.com/junegunn/fzf) — powers the `prefix + w` tmux tree popup; without it the popup just prints an install hint
 - [delta](https://github.com/dandavison/delta) (`git-delta`) — lazygit pipes diffs through it for syntax-highlighted, word-level review; without it on PATH lazygit falls back to raw diffs
-- [Tailscale](https://tailscale.com/) — mesh VPN behind the `ts` toggle and the status-bar glyph; the formula ships `tailscaled` as a root LaunchDaemon, started once with `sudo brew services start tailscale`
 
 ### Shared
 
@@ -75,7 +74,7 @@ effect without a manual `prefix + I` or server restart.
   lazygit/config.yml           # Lazygit (review-focused layout, delta pager, pink/cyan theme)
   nvim/                        # Neovim (lazy.nvim, onedark, LSP, telescope)
   tmux/tree.sh                 # fzf session/window/pane tree behind prefix + w
-  tmux/tailscale-status.sh     # VPN glyph in the tmux status bar
+  tmux/awake-status.sh         # Sleep-disabled glyph in the tmux status bar
   tmux/claude-sessions.sh      # Claude-state dot after the session counter
   zsh/
     .zshrc                     # Shell config (prompt, history, completions)
@@ -85,12 +84,12 @@ keybinds.ahk                   # AutoHotKey remaps (Windows)
 
 ## Key Aliases
 
-| Alias | Command                                                                            |
-| ----- | ---------------------------------------------------------------------------------- |
-| `lg`  | `lazygit`                                                                          |
-| `cc`  | `claude`                                                                           |
-| `ref` | Re-source `.zshrc`                                                                 |
-| `zrc` | Edit `.zshrc` in nvim                                                              |
-| `zal` | Edit `aliasrc` in nvim                                                             |
-| `wp`  | `cd ~/Developer`                                                                   |
-| `ts`  | Toggle the Tailscale VPN + macOS sleep together (`ts on` / `ts off` / `ts status`) |
+| Alias   | Command                                                                           |
+| ------- | --------------------------------------------------------------------------------- |
+| `lg`    | `lazygit`                                                                         |
+| `cc`    | `claude`                                                                          |
+| `ref`   | Re-source `.zshrc`                                                                |
+| `zrc`   | Edit `.zshrc` in nvim                                                             |
+| `zal`   | Edit `aliasrc` in nvim                                                            |
+| `wp`    | `cd ~/Developer`                                                                  |
+| `awake` | Toggle macOS sleep for remote-control (`awake on` / `awake off` / `awake status`) |

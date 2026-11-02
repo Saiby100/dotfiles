@@ -72,55 +72,40 @@ function obs() {
   open "obsidian://open?path=$enc"
 }
 
-# Toggle the Tailscale mesh VPN together with the sleep setting that keeps this
-# Mac reachable over it.
+# Keep this Mac awake so Claude remote-control sessions stay reachable.
 #
-#   ts          flip — down if it is up, up if it is down
-#   ts on/off   explicit
-#   ts status   passthrough to `tailscale status`
+#   awake          flip — restore sleep if it is disabled, disable it otherwise
+#   awake on/off   explicit
+#   awake status   print whether sleep is disabled
 #
-# The two have to move together: on Apple Silicon, clamshell sleep overrides
-# both caffeinate assertions and `pmset -c sleep 0`, and `pmset -a disablesleep`
-# — the only knob that survives it — is system-wide, so leaving the VPN on while
-# unplugged keeps the Mac fully awake on battery. Remember to `ts off`.
-#
-# tailscale up/down and pmset both need root, so `sudo -v` primes the credential
-# cache once up front — one password prompt per toggle rather than two.
-function ts() {
+# On Apple Silicon, clamshell sleep overrides both caffeinate assertions and
+# `pmset -c sleep 0`; `pmset -a disablesleep` is the only knob that survives it.
+# It is system-wide, so leaving it on while unplugged keeps the Mac fully awake
+# on battery — the tmux status bar shows a glyph while it is on. Remember to
+# `awake off`.
+function awake() {
   emulate -L zsh
-  local want="${1:-}"
+  # pmset is macOS-only; this file is shared with Linux (see _source_first below).
+  if [[ "$(uname)" != Darwin ]]; then
+    print -u2 "awake: macOS only"; return 1
+  fi
+
+  local want="${1:-}" disabled=0
+  [[ "$(pmset -g)" =~ "SleepDisabled[[:space:]]+1" ]] && disabled=1
 
   case "$want" in
-    status) tailscale status; return $? ;;
+    status) (( disabled )) && print "sleep disabled" || print "sleep normal"; return 0 ;;
     on|off) ;;
-    '')
-      # exit 0 means the backend is Running; anything else counts as down.
-      if tailscale status --peers=false >/dev/null 2>&1; then want=off; else want=on; fi
-      ;;
-    *) print -u2 "ts: usage: ts [on|off|status]"; return 1 ;;
+    '') (( disabled )) && want=off || want=on ;;
+    *) print -u2 "awake: usage: awake [on|off|status]"; return 1 ;;
   esac
 
-  sudo -v || return 1
-
-  # pmset is macOS-only; this file is shared with Linux (see _source_first below).
-  local darwin=0 note=""
-  [[ "$(uname)" == Darwin ]] && darwin=1
-
   if [[ $want == on ]]; then
-    # Sleep guard first, so the link does not come up racing an idle sleep.
-    (( darwin )) && { sudo pmset -a disablesleep 1 || return 1 }
-    if ! sudo tailscale up; then
-      # Never leave sleep disabled for a VPN that failed to come up.
-      (( darwin )) && sudo pmset -a disablesleep 0
-      return 1
-    fi
-    (( darwin )) && note=" · sleep disabled"
-    print "vpn on$note"
+    sudo pmset -a disablesleep 1 || return 1
+    print "sleep disabled"
   else
-    sudo tailscale down || return 1
-    (( darwin )) && sudo pmset -a disablesleep 0
-    (( darwin )) && note=" · sleep restored"
-    print "vpn off$note"
+    sudo pmset -a disablesleep 0 || return 1
+    print "sleep restored"
   fi
 
   # Repaint the status bar now instead of up to status-interval seconds later.
