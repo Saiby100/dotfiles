@@ -45,17 +45,13 @@
     "defaultMode": "auto"
   },
   "model": "opus",
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh"
-  },
   "hooks": {
     "Notification": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "sh ~/.claude/tmux-claude-state.sh waiting"
+            "command": "sh \"$HOME/.claude/tmux-claude-state.sh\" waiting"
           }
         ]
       }
@@ -65,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh ~/.claude/tmux-claude-state.sh done"
+            "command": "sh \"$HOME/.claude/tmux-claude-state.sh\" done"
           }
         ]
       }
@@ -75,20 +71,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh ~/.claude/tmux-claude-state.sh clear"
+            "command": "sh \"$HOME/.claude/tmux-claude-state.sh\" clear"
           }
         ]
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
+  },
   "enabledPlugins": {
     "swift-lsp@claude-plugins-official": true
   },
+  "outputStyle": "Concise",
   "effortLevel": "medium",
+  "tui": "fullscreen",
   "voice": {
     "enabled": true,
     "mode": "hold"
   },
+  "editorMode": "vim",
+  "autoCompactEnabled": false,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "inputNeededNotifEnabled": true
 }
