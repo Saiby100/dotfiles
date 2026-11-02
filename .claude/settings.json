@@ -75,6 +75,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.claude/tmux-claude-session.sh\""
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
