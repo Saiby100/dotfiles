@@ -134,14 +134,17 @@ return {
 					["<C-j>"]     = cmp.mapping.select_next_item(),
 					["<C-Space>"] = cmp.mapping.complete(),
 					["<C-e>"]     = cmp.mapping.abort(),
-					["<CR>"]      = cmp.mapping.confirm({ select = false }),
 					-- Smart Tab: confirm the cmp menu if open, else accept a
 					-- Copilot ghost suggestion if one is showing, else plain tab.
+					-- Only whitespace before the cursor means you're indenting, so
+					-- Copilot is skipped there (accept it with <M-l> instead).
 					["<Tab>"]     = cmp.mapping(function(fallback)
 						local ok, copilot = pcall(require, "copilot.suggestion")
+						local col = vim.api.nvim_win_get_cursor(0)[2]
+						local only_indent = vim.api.nvim_get_current_line():sub(1, col):match("^%s*$") ~= nil
 						if cmp.visible() then
 							cmp.confirm({ select = true })
-						elseif ok and copilot.is_visible() then
+						elseif ok and copilot.is_visible() and not only_indent then
 							copilot.accept()
 						else
 							fallback()
