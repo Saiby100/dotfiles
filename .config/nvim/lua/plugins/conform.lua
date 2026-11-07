@@ -44,6 +44,7 @@ return {
         yaml              = { "prettier" },
         markdown          = { "prettier" },
         graphql           = { "prettier" },
+        dart              = { "dart_format" }
       },
       formatters = {
         prettier = {
