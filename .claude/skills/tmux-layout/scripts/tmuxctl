@@ -16,7 +16,7 @@ Targets (anywhere a PANE/WINDOW/SESSION is taken):
                     exactly one pane, else the candidates are listed
 
 Commands:
-  ctx [--json] [--all]   me, my neighbours, and the server tree
+  ctx [--json]           me, my neighbours, and the server tree
   find WORDS...          panes matching the words (exit 1 if none)
   peek PANE [-n 40]      last lines of a pane's screen
   beside SRC DST [--left|--right|--above|--below] [--size 30%]
