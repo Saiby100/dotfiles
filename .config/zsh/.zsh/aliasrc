@@ -34,6 +34,17 @@ alias lg='lazygit'
 # is none. Nothing starts tmux automatically any more — this is the entry point.
 alias t='tmux attach || tmux new-session -s Workspace'
 
+# Bare `tmux` lands in Workspace too, instead of a new session named 0, 1, …
+# -A attaches when Workspace already exists. Anything with arguments passes
+# straight through.
+tmux() {
+  if [ $# -eq 0 ]; then
+    command tmux new-session -A -s Workspace
+  else
+    command tmux "$@"
+  fi
+}
+
 # Configure Files
 alias zrc='nvim $HOME/.config/zsh/.zshrc'
 alias zal='nvim $HOME/.config/zsh/.zsh/aliasrc'
