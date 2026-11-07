@@ -1,44 +1,48 @@
 #!/bin/sh
-# Mirror Claude Code's attention state into the tmux status bar and session tree.
+# Mirror Claude Code's attention state onto its tmux pane, for the status bar
+# and the session tree. Wired to hooks in ~/.claude/settings.json:
 #
-# Wired to three hooks in ~/.claude/settings.json:
-#   Notification      -> waiting   (Claude wants input: a permission prompt, or idle)
-#   Stop              -> done      (Claude finished its turn)
-#   UserPromptSubmit  -> clear     (you just replied, so it's your turn no longer)
+#   PermissionRequest, PreToolUse(AskUserQuestion)  -> waiting  (blocked on you)
+#   Stop                                            -> done     (turn finished)
+#   UserPromptSubmit, PostToolUse(Failure)          -> clear    (working again)
+#   SessionEnd                                      -> end      (clear, and forget the session ID)
 #
-# Recorded at three scopes, read by three surfaces:
+# Notification is deliberately not used: it also fires ~60s after any finished
+# turn ("waiting for your input"), which turned every green dot yellow.
 #
-#   @claude_pane_state     pane     tree.sh pane rows
-#   @claude_state          window   window-status-format, tree.sh window rows
-#   @claude_session_state  session  status-left dot, tree.sh session rows
-#
-# The names differ rather than one name being set three times because pane
-# options fall back to window options, and window options to session options.
-# Sharing a name would make a pane with no state of its own read its window's
-# "done", so every sibling pane would look finished.
+# State lives on the pane alone, as @claude_pane_state. Windows and sessions
+# work theirs out from their panes with #{P:} / #{W:} loops (.tmux.conf,
+# tree.sh), so two Claude panes in one window can no longer clear each other's
+# dot.
 
-# Hooks receive JSON on stdin. We don't need it, but drain it so Claude never
-# blocks writing to a pipe nobody reads.
+# Hooks receive JSON on stdin. Drain it so Claude never blocks on the pipe.
 cat >/dev/null 2>&1
 
 # Claude runs outside tmux plenty (plain terminal, CI, an editor's terminal).
-# TMUX_PANE is set per-pane by tmux and inherited by anything started in it.
 [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] || exit 0
 
-# -p, -w and no flag are the pane, window and session tables; -t resolves the
-# window and session from the pane in every case.
-if [ "$1" = "clear" ]; then
-  tmux set-option -up -t "$TMUX_PANE" @claude_pane_state 2>/dev/null
-  tmux set-option -uw -t "$TMUX_PANE" @claude_state 2>/dev/null
-  tmux set-option -u  -t "$TMUX_PANE" @claude_session_state 2>/dev/null
-else
-  tmux set-option -p -t "$TMUX_PANE" @claude_pane_state "$1" 2>/dev/null
-  tmux set-option -w -t "$TMUX_PANE" @claude_state "$1" 2>/dev/null
-  tmux set-option    -t "$TMUX_PANE" @claude_session_state "$1" 2>/dev/null
-fi
+P=$TMUX_PANE
+# The pane on screen right now: active in its window, in the active window,
+# in a session a client is attached to.
+LOOKING='#{&&:#{session_attached},#{&&:#{window_active},#{pane_active}}}'
 
-# Redraw now rather than waiting up to status-interval seconds.
-tmux refresh-client -S 2>/dev/null
+# One tmux call per hook: PostToolUse fires on every tool call, so this stays
+# cheap. Clearing only touches the server when there is something to clear.
+case $1 in
+  clear)
+    tmux if-shell -F -t "$P" '#{@claude_pane_state}' \
+      "set-option -up -t $P @claude_pane_state ; refresh-client -S" ;;
+  end)
+    tmux set-option -up -t "$P" @claude_pane_state \; \
+         set-option -up -t "$P" @claude_session_id \; \
+         refresh-client -S ;;
+  waiting|done)
+    # A dot on the pane you are looking at is noise: you have already seen it.
+    tmux if-shell -F -t "$P" "$LOOKING" \
+      "set-option -up -t $P @claude_pane_state" \
+      "set-option -p -t $P @claude_pane_state $1" \; \
+         refresh-client -S ;;
+esac 2>/dev/null
 
 # Never fail: a non-zero exit from a hook is surfaced to Claude as an error.
 exit 0

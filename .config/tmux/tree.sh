@@ -93,16 +93,13 @@ fi
 # Fields 12 and 13 are the ancestry column, drawn only while searching: a
 # filtered pane row has lost the parent rows that said where it came from.
 #
-# The last three are Claude Code's state, written by ~/.claude/tmux-claude-state.sh
-# at pane, window and session scope under three separate names. Every field is
-# evaluated in pane context, so a pane carries its own state *and* its window's
-# and session's — which is what lets a folded session or window row still show
-# that something inside it finished.
+# The last is Claude Code's state, which ~/.claude/tmux-claude-state.sh records
+# on the pane alone.
 ROW_FMT="#{session_name}${TAB}#{session_windows}${TAB}#{p46:#{=45:#{session_name}}}${TAB}#{session_windows} window#{?#{==:#{session_windows},1},,s}\
 ${TAB}#{window_index}${TAB}#{window_panes}${TAB}#{p45:#{=44:#{window_name}}}${TAB}#{window_panes} pane#{?#{==:#{window_panes},1},,s}\
 ${TAB}#{pane_id}${TAB}#{p42:#{=41:#{?#{==:#{pane_title},#{host}},#{pane_current_command},#{pane_title}}}}${TAB}#{s|^$HOME|~|:pane_current_path}\
 ${TAB}#{p28:#{=27:#{session_name}}}${TAB}#{p28:#{=27:#{session_name} › #{window_index}: #{window_name}}}\
-${TAB}#{@claude_pane_state}${TAB}#{@claude_state}${TAB}#{@claude_session_state}"
+${TAB}#{@claude_pane_state}"
 
 # --- Building the list -----------------------------------------------------
 # A fold hides rows, and a hidden row cannot be fuzzy-matched, so folds only
@@ -122,9 +119,9 @@ ${TAB}#{@claude_pane_state}${TAB}#{@claude_state}${TAB}#{@claude_session_state}"
 # type icon. Being fixed on every row is what keeps the label padding tmux
 # already did in ROW_FMT honest.
 #
-# The state gutter is the same ● the tmux status bar draws, and sits on session
-# and window rows as well as panes — that is how you find which pane is waiting
-# when the session or window holding it is folded shut.
+# The state gutter is the same ● the tmux status bar draws, on pane rows only:
+# repeating it on the window and session above made one waiting Claude light up
+# three rows. The status bar already says which window or session to look in.
 #
 # The ancestry column sits between the label and the meta, where every row is
 # already flush; in front it would break the per-depth label padding. fzf
@@ -159,7 +156,7 @@ BEGIN {
     sess = $1; swins = $2 + 0; wseen = 0; win = ""
     skey = "s:" sess
     sshut = (!searching && (skey in fold))
-    emit(skey, sshut ? right : down, csess, isess, $3, searching ? noanc : "", $4, $16)
+    emit(skey, sshut ? right : down, csess, isess, $3, searching ? noanc : "", $4, "")
   }
   if (sshut) next
 
@@ -167,7 +164,7 @@ BEGIN {
   if (wkey != win) {
     win = wkey; wpanes = $6 + 0; pseen = 0; wseen++
     wlast = (wseen == swins)
-    emit(wkey, wlast ? elbow : tee, cwin, iwin, $7, searching ? $12 : "", $8, $15)
+    emit(wkey, wlast ? elbow : tee, cwin, iwin, $7, searching ? $12 : "", $8, "")
     wshut = (!searching && (wkey in fold))
     trunk = wlast ? blank : pipe
   }
