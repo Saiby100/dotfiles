@@ -25,7 +25,7 @@ sudo apt install neovim tmux zsh ripgrep git-delta
 - [JetBrainsMono Nerd Font](https://www.nerdfonts.com/font-downloads) — used by Ghostty
 - [ripgrep](https://github.com/BurntSushi/ripgrep) — required by Telescope's `find_files` and `live_grep`; without it the pickers return no results
 - [tree-sitter CLI](https://github.com/tree-sitter/tree-sitter) — nvim-treesitter's `main` branch compiles parsers with it; without it syntax highlighting silently fails
-- [fzf](https://github.com/junegunn/fzf) — powers the `prefix + w` tmux tree popup; without it the popup just prints an install hint
+- [fzf](https://github.com/junegunn/fzf) — powers the `prefix + w` tmux tree and `prefix + a` agents popups; without it the popup just prints an install hint
 - [delta](https://github.com/dandavison/delta) (`git-delta`) — lazygit pipes diffs through it for syntax-highlighted, word-level review; without it on PATH lazygit falls back to raw diffs
 
 ### Shared
@@ -73,7 +73,7 @@ effect without a manual `prefix + I` or server restart.
   ghostty/config               # Terminal (One Dark Two, JetBrainsMono Nerd Font)
   lazygit/config.yml           # Lazygit (review-focused layout, delta pager, pink/cyan theme)
   nvim/                        # Neovim (lazy.nvim, onedark, LSP, telescope)
-  tmux/tree.sh                 # fzf session/window/pane tree behind prefix + w
+  tmux/tree.sh                 # fzf session/window/pane tree (prefix + w) and agents list (prefix + a)
   tmux/awake-status.sh         # Sleep-disabled glyph in the tmux status bar
   zsh/
     .zshrc                     # Shell config (prompt, history, completions)

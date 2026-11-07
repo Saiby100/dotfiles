@@ -6,6 +6,10 @@
 # Enter jumps to the row under the cursor; m marks rows and M moves everything
 # marked into the row the cursor is on.
 #
+# `tree.sh agents` (prefix + a) is the same popup over a flat list of the panes
+# running Claude Code: no sessions or windows, every row naming where it lives.
+# Every key works the same; folding has nothing to fold.
+#
 # The script re-enters itself: fzf's reload/execute/preview bindings all call
 # "$0" with a mode argument. Modes are `list`, `act <verb> <key>` and
 # `preview <key>`; no argument is the interactive entry.
@@ -46,6 +50,12 @@ case $SELF in
   *)  SELF=$(cd "$(dirname "$SELF")" && pwd)/$(basename "$SELF") ;;
 esac
 TAB=$(printf '\t')
+
+# Which list to draw. Exported, because the reload and preview children are
+# started with a mode argument of their own and only the environment survives.
+[ "${1:-}" = agents ] && TREE_VIEW=agents
+TREE_VIEW=${TREE_VIEW:-tree}
+export TREE_VIEW
 FOLD_FILE="${TMPDIR:-/tmp}/tmux-tree-folds"
 MARK_FILE="${TMPDIR:-/tmp}/tmux-tree-marks"
 
@@ -93,13 +103,19 @@ fi
 # Fields 12 and 13 are the ancestry column, drawn only while searching: a
 # filtered pane row has lost the parent rows that said where it came from.
 #
-# The last is Claude Code's state, which ~/.claude/tmux-claude-state.sh records
-# on the pane alone.
+# Field 14 is Claude Code's state, which ~/.claude/tmux-claude-state.sh records
+# on the pane alone. Field 15 says whether the pane runs Claude at all, for the
+# agents view: Claude names its process after its version (2.1.319), and the
+# SessionStart hook leaves @claude_session_id on the pane. Either is enough —
+# panes started before the hook existed have only the first. Field 16 is the
+# ancestry again, wider: in the agents view it is the column you read most.
 ROW_FMT="#{session_name}${TAB}#{session_windows}${TAB}#{p46:#{=45:#{session_name}}}${TAB}#{session_windows} window#{?#{==:#{session_windows},1},,s}\
 ${TAB}#{window_index}${TAB}#{window_panes}${TAB}#{p45:#{=44:#{window_name}}}${TAB}#{window_panes} pane#{?#{==:#{window_panes},1},,s}\
 ${TAB}#{pane_id}${TAB}#{p42:#{=41:#{?#{==:#{pane_title},#{host}},#{pane_current_command},#{pane_title}}}}${TAB}#{s|^$HOME|~|:pane_current_path}\
 ${TAB}#{p28:#{=27:#{session_name}}}${TAB}#{p28:#{=27:#{session_name} › #{window_index}: #{window_name}}}\
-${TAB}#{@claude_pane_state}"
+${TAB}#{@claude_pane_state}\
+${TAB}#{||:#{@claude_session_id},#{m/r:^[0-9]+[.][0-9]+[.][0-9]+$,#{pane_current_command}}}\
+${TAB}#{p40:#{=39:#{session_name} › #{window_index}: #{window_name}}}"
 
 # --- Building the list -----------------------------------------------------
 # A fold hides rows, and a hidden row cannot be fuzzy-matched, so folds only
@@ -151,6 +167,12 @@ BEGIN {
   # while searching, or its meta would sit left of everything else there.
   noanc = sprintf("%28s", "")
 }
+# The agents view is the pane rows alone, with no tree to hang off, so the
+# ancestry column is always drawn: it is the only thing saying where a row is.
+agents {
+  if ($15 == "1") emit("p:" $9, "", cpane, ipane, $10, $16, $11, $14)
+  next
+}
 {
   if ($1 != sess) {
     sess = $1; swins = $2 + 0; wseen = 0; win = ""
@@ -178,7 +200,7 @@ BEGIN {
 list() {
   tmux list-panes -a -F "$ROW_FMT" 2>/dev/null \
     | awk -v searching="$1" -v foldfile="$FOLD_FILE" -v markfile="$MARK_FILE" \
-          -v srcpane="p:$SRC_PANE" \
+          -v srcpane="p:$SRC_PANE" -v agents="$([ "$TREE_VIEW" = agents ] && echo 1)" \
           -v csess="$C_BLUE$C_BOLD" -v cwin="$C_FG$C_BOLD" -v cpane="$C_FG" \
           -v cmuted="$C_MUTED" -v ccur="$C_BLUE" -v cmark="$C_YELLOW" \
           -v cwait="$C_YELLOW" -v cdone="$C_GREEN" \
@@ -384,8 +406,8 @@ POS_FILE="${TMPDIR:-/tmp}/tmux-tree-pos"
 # above, which sits exactly pane_index rows up.
 save_pos() {
   _off=0
-  case $3:$1 in
-    collapse:p:*) _off=$(tmux display-message -p -t "${1#p:}" '#{pane_index}' 2>/dev/null) || _off=0 ;;
+  case $TREE_VIEW:$3:$1 in
+    tree:collapse:p:*) _off=$(tmux display-message -p -t "${1#p:}" '#{pane_index}' 2>/dev/null) || _off=0 ;;
   esac
   printf 'pos(%d)' "$(($2 + 1 - _off))" > "$POS_FILE"
 }
@@ -591,9 +613,17 @@ EOF
 # The header lists only the keys you would not guess.
 header=':N row  n new  r rename  x kill  m mark  M move marked  U unmark  / search'
 
+# The border's label is what tells the two views apart at a glance.
+case $TREE_VIEW in
+  agents) label=' Agents ' ;;
+  *)      label=' Tree ' ;;
+esac
+
 out=$(list | fzf \
   --ansi \
   --border=thinblock \
+  --border-label="$label" \
+  --border-label-pos=3 \
   --color="border:$_purple,preview-border:$_muted" \
   --padding=1,3 \
   --no-sort \
