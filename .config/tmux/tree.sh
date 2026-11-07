@@ -3,8 +3,9 @@
 # (prefix + w). fzf matches incrementally across the whole row — session name,
 # window name, pane title and path at once.
 #
-# Enter jumps to the row under the cursor; m marks rows and M moves everything
-# marked into the row the cursor is on.
+# Enter jumps to the row under the cursor; space selects rows, M moves the
+# selection into the row the cursor is on, and dd kills the row (or, with rows
+# selected, the selection). Claude Code panes carry a ✻ in Claude's orange.
 #
 # `tree.sh agents` (prefix + a) is the same popup over a flat list of the panes
 # running Claude Code: no sessions or windows, every row naming where it lives.
@@ -75,8 +76,8 @@ sgr() {
 # Computed once and exported, so the reload and preview children inherit them
 # instead of paying for the round-trip again.
 if [ -z "${C_OFF:-}" ]; then
-  IFS="$TAB" read -r _blue _fg _muted _green _yellow <<EOF
-$(tmux display-message -p "#{@blue}${TAB}#{@fg}${TAB}#{@muted}${TAB}#{@green}${TAB}#{@yellow}")
+  IFS="$TAB" read -r _blue _fg _muted _green _yellow _claude <<EOF
+$(tmux display-message -p "#{@blue}${TAB}#{@fg}${TAB}#{@muted}${TAB}#{@green}${TAB}#{@yellow}${TAB}#{@claude}")
 EOF
   C_OFF=$(printf '\033[0m')
   C_BOLD=$(printf '\033[1m')
@@ -85,7 +86,8 @@ EOF
   C_MUTED=$(sgr "$_muted")
   C_GREEN=$(sgr "$_green")
   C_YELLOW=$(sgr "$_yellow")
-  export C_OFF C_BOLD C_BLUE C_FG C_MUTED C_GREEN C_YELLOW
+  C_CLAUDE=$(sgr "$_claude")
+  export C_OFF C_BOLD C_BLUE C_FG C_MUTED C_GREEN C_YELLOW C_CLAUDE
 fi
 
 # --- Row formats -----------------------------------------------------------
@@ -104,17 +106,22 @@ fi
 # filtered pane row has lost the parent rows that said where it came from.
 #
 # Field 14 is Claude Code's state, which ~/.claude/tmux-claude-state.sh records
-# on the pane alone. Field 15 says whether the pane runs Claude at all, for the
-# agents view: Claude names its process after its version (2.1.319), and the
-# SessionStart hook leaves @claude_session_id on the pane. Either is enough —
-# panes started before the hook existed have only the first. Field 16 is the
+# on the pane alone. Field 15 says whether the pane runs Claude at all: it picks
+# the rows of the agents view and the ✻ icon. Claude starts its pane title with
+# a status glyph of its own (✳, or a spinner while working), dropped from the
+# label since the icon already says it is Claude. Field 16 is the
 # ancestry again, wider: in the agents view it is the column you read most.
+# A pane runs Claude when its process is named after a version (2.1.319) or the
+# SessionStart hook left @claude_session_id on it. Panes started before the
+# hook existed have only the first.
+IS_CLAUDE='#{||:#{@claude_session_id},#{m/r:^[0-9]+[.][0-9]+[.][0-9]+$,#{pane_current_command}}}'
+
 ROW_FMT="#{session_name}${TAB}#{session_windows}${TAB}#{p46:#{=45:#{session_name}}}${TAB}#{session_windows} window#{?#{==:#{session_windows},1},,s}\
 ${TAB}#{window_index}${TAB}#{window_panes}${TAB}#{p45:#{=44:#{window_name}}}${TAB}#{window_panes} pane#{?#{==:#{window_panes},1},,s}\
-${TAB}#{pane_id}${TAB}#{p42:#{=41:#{?#{==:#{pane_title},#{host}},#{pane_current_command},#{pane_title}}}}${TAB}#{s|^$HOME|~|:pane_current_path}\
+${TAB}#{pane_id}${TAB}#{p42:#{=41:#{?#{==:#{pane_title},#{host}},#{pane_current_command},#{?$IS_CLAUDE,#{s/^[^ a-zA-Z0-9]+ //:pane_title},#{pane_title}}}}}${TAB}#{s|^$HOME|~|:pane_current_path}\
 ${TAB}#{p28:#{=27:#{session_name}}}${TAB}#{p28:#{=27:#{session_name} › #{window_index}: #{window_name}}}\
 ${TAB}#{@claude_pane_state}\
-${TAB}#{||:#{@claude_session_id},#{m/r:^[0-9]+[.][0-9]+[.][0-9]+$,#{pane_current_command}}}\
+${TAB}$IS_CLAUDE\
 ${TAB}#{p40:#{=39:#{session_name} › #{window_index}: #{window_name}}}"
 
 # --- Building the list -----------------------------------------------------
@@ -145,14 +152,14 @@ ${TAB}#{p40:#{=39:#{session_name} › #{window_index}: #{window_name}}}"
 # Claude pane in the MRM window even though neither its title nor its path
 # says MRM.
 TREE_AWK='
-function emit(key, prefix, colour, icon, label, anc, meta, state,   c, g, n, d) {
+function emit(key, prefix, colour, icon, label, anc, meta, state, ic,   c, g, n, d) {
   c = (key == srcpane) ? ccur : colour
   g = (key in mark) ? (cmark gmark " " coff) : "  "
   d = (state == "waiting") ? (cwait gstate " " coff) \
     : (state == "done")    ? (cdone gstate " " coff) : "  "
   n = searching ? "    " : sprintf("%3d ", ++nr)
   printf "%s\t%s\n", key,
-         cmuted n coff g d cmuted prefix c icon label coff canc anc cmuted meta coff
+         cmuted n coff g d cmuted prefix (ic != "" ? ic icon coff c : c icon) label coff canc anc cmuted meta coff
 }
 BEGIN {
   FS = "\t"
@@ -162,6 +169,7 @@ BEGIN {
   tee = "\342\224\234\342\224\200 "; elbow = "\342\224\224\342\224\200 "
   pipe = "\342\224\202  "; blank = "   "
   isess = "\357\210\263 "; iwin = "\357\213\220 "; ipane = "\357\204\240 "
+  iclaude = "\342\234\273 "
   gmark = "\357\200\214"; gstate = "\342\227\217"
   # A session row has no ancestor to name, but still owes the column its width
   # while searching, or its meta would sit left of everything else there.
@@ -170,7 +178,7 @@ BEGIN {
 # The agents view is the pane rows alone, with no tree to hang off, so the
 # ancestry column is always drawn: it is the only thing saying where a row is.
 agents {
-  if ($15 == "1") emit("p:" $9, "", cpane, ipane, $10, $16, $11, $14)
+  if ($15 == "1") emit("p:" $9, "", cpane, iclaude, $10, $16, $11, $14, cclaude)
   next
 }
 {
@@ -193,8 +201,9 @@ agents {
   if (wshut) next
 
   pseen++
-  emit("p:" $9, trunk (pseen == wpanes ? elbow : tee), cpane, ipane, $10,
-       searching ? $13 : "", $11, $14)
+  claude = ($15 == "1")
+  emit("p:" $9, trunk (pseen == wpanes ? elbow : tee), cpane, claude ? iclaude : ipane, $10,
+       searching ? $13 : "", $11, $14, claude ? cclaude : "")
 }'
 
 list() {
@@ -203,7 +212,7 @@ list() {
           -v srcpane="p:$SRC_PANE" -v agents="$([ "$TREE_VIEW" = agents ] && echo 1)" \
           -v csess="$C_BLUE$C_BOLD" -v cwin="$C_FG$C_BOLD" -v cpane="$C_FG" \
           -v cmuted="$C_MUTED" -v ccur="$C_BLUE" -v cmark="$C_YELLOW" \
-          -v cwait="$C_YELLOW" -v cdone="$C_GREEN" \
+          -v cwait="$C_YELLOW" -v cdone="$C_GREEN" -v cclaude="$C_CLAUDE" \
           -v canc="$C_BLUE" -v coff="$C_OFF" "$TREE_AWK"
 }
 
@@ -383,6 +392,20 @@ act() {
       fi
       ;;
     unmark) : > "$MARK_FILE" ;;
+    killmarked)
+      # Panes, then windows, then sessions: killing a session first would take
+      # marked panes inside it along, and their own kill would then fail.
+      { grep '^[pw]:' "$MARK_FILE"; grep '^s:' "$MARK_FILE"; } 2>/dev/null |
+        while IFS= read -r mk; do
+          t=$(target "$mk")
+          case $mk in
+            p:*) tmux kill-pane -t "$t" ;;
+            w:*) tmux kill-window -t "$t" ;;
+            s:*) tmux kill-session -t "$t" ;;
+          esac 2>/dev/null
+        done
+      : > "$MARK_FILE"
+      ;;
     move)   move_marked "$tgt" ;;
   esac
 }
@@ -429,11 +452,11 @@ save_pos() {
 # unwound by enter or esc. See Prompt mode.
 VIM_NAV='j,k,g,G,d,u,:'
 VIM_MODE='i,a,/,q'
-VIM_ACT='h,l,n,r,x,p,m,M,U'
+VIM_ACT='h,l,n,r,x,p,M,U,space'
 
 dead_keys=''
 dead_binds=''
-for k in b c e f o s t v w y z space \
+for k in b c e f m o s t v w y z \
          A B C D E F H I J K L N O P Q R S T V W X Y Z \
          0 1 2 3 4 5 6 7 8 9; do
   dead_keys="$dead_keys,$k"
@@ -479,6 +502,7 @@ prompt_label() {
     rename:p:*) printf 'Pane title' ;;
     rename:*)   printf 'Rename' ;;
     kill:*)     printf 'Kill session?' ;;
+    killmarked:*) printf 'Kill %d selected?' "$(grep -c . "$MARK_FILE")" ;;
     goto:*)     printf 'Go to row' ;;
   esac
 }
@@ -508,6 +532,9 @@ close_prompt() {
 # not ask. Those run here and print nothing, leaving the binding's own reload
 # to redraw — which is what every non-prompting key already does.
 begin() {
+  # With rows selected, a kill is a kill of the selection, wherever the cursor
+  # is — and always asks, since it can take several things at once.
+  [ "$1" = kill ] && [ -s "$MARK_FILE" ] && { open_prompt killmarked "$2" "$3"; return; }
   case $1:$2 in
     goto:*)                  open_prompt "$1" "$2" "$3" ;;
     *:'')                    exit 0 ;;
@@ -533,10 +560,10 @@ commit() {
         *) _pos=$(($2 - 1)) ;;
       esac
       ;;
-    kill)
+    kill|killmarked)
       # Enter is the confirmation, so there is nothing to check: esc is how you
       # back out, the same key that backs out of every other prompt.
-      act kill "$_key" "$_pos" '' 2>/dev/null
+      act "$_verb" "$_key" "$_pos" '' 2>/dev/null
       ;;
     *)
       # An empty name cancels rather than renaming something to nothing, which
@@ -545,6 +572,23 @@ commit() {
       ;;
   esac
   close_prompt "$((_pos + 1))"
+}
+
+# dd kills, as vim's dd deletes a line. fzf binds single keys only, so the
+# first d is remembered in a file and a second d within a second completes it;
+# a d on its own after that has gone stale just starts over. The first d still
+# saves the cursor, because the binding's reload would otherwise drop it at the
+# top.
+DD_FILE="${TMPDIR:-/tmp}/tmux-tree-dd"
+dd_key() {
+  now=$(date +%s)
+  if [ -f "$DD_FILE" ] && [ $((now - $(stat -f %m "$DD_FILE"))) -le 1 ]; then
+    rm -f "$DD_FILE"
+    begin kill "$1" "$2"
+  else
+    touch "$DD_FILE"
+    save_pos "$1" "${2:-0}" dd
+  fi
 }
 
 # Esc out of a search is only a mode switch: the query stays, so there is
@@ -565,6 +609,7 @@ case ${1:-} in
   begin)   begin "$2" "$3" "$4"; exit 0 ;;
   commit)  commit "$2" "$3" "$4"; exit 0 ;;
   cancel)  cancel; exit 0 ;;
+  dd)      dd_key "$2" "$3"; exit 0 ;;
   after-act) cat "$POS_FILE" 2>/dev/null; rm -f "$POS_FILE"; exit 0 ;;
   act)     act "$2" "$3" "$4" "$5"; exit 0 ;;
   preview) tmux capture-pane -ep -t "$(target "$2")" 2>/dev/null; exit 0 ;;
@@ -591,7 +636,7 @@ export SRC_PANE
 # a row you have since forgotten about — and M would move it.
 : > "$FOLD_FILE"
 : > "$MARK_FILE"
-rm -f "$POS_FILE" "$PEND_FILE"
+rm -f "$POS_FILE" "$PEND_FILE" "$DD_FILE"
 
 
 # ctrl-based keys work in both modes, so nothing has to be remembered twice.
@@ -611,7 +656,7 @@ $(tmux display-message -p "#{@purple}${TAB}#{@muted}")
 EOF
 
 # The header lists only the keys you would not guess.
-header=':N row  n new  r rename  x kill  m mark  M move marked  U unmark  / search'
+header=':N row  n new  r rename  dd kill  space select  M move selected  U clear  / search'
 
 # The border's label is what tells the two views apart at a glance.
 case $TREE_VIEW in
@@ -639,7 +684,8 @@ out=$(list | fzf \
   --bind="i:unbind($MODAL_KEYS)+change-prompt($P_INSERT)" \
   --bind="a:unbind($MODAL_KEYS)+change-prompt($P_INSERT)" \
   --bind="/:unbind($MODAL_KEYS)+change-prompt($P_INSERT)" \
-  --bind='j:down,k:up,g:first,G:last,d:half-page-down,u:half-page-up' \
+  --bind='j:down,k:up,g:first,G:last,u:half-page-up,ctrl-d:half-page-down,ctrl-u:half-page-up' \
+  --bind="d:transform('$SELF' dd {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
   --bind="::transform('$SELF' begin goto {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
   --bind='q:abort,p:toggle-preview' \
   --bind="$dead_binds" \
@@ -648,7 +694,7 @@ out=$(list | fzf \
   --bind="x:transform('$SELF' begin kill {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
   --bind="h:execute-silent('$SELF' act collapse {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
   --bind="l:execute-silent('$SELF' act expand {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
-  --bind="m:execute-silent('$SELF' act mark {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
+  --bind="space:execute-silent('$SELF' act mark {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
   --bind="U:execute-silent('$SELF' act unmark {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
   --bind="M:execute('$SELF' act move {1} {n})+reload-sync('$SELF' list {q})+transform('$SELF' after-act)" \
   --bind='?:toggle-preview' \
