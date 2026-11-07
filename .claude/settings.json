@@ -30,8 +30,11 @@
       "Bash(cat *~/Developer/*)",
       "Bash(cat */Users/salahuddin/Developer/*)",
       "Bash(head *~/Developer/*)",
-      "Bash(head */Users/salahuddin/Developer/*)"
+      "Bash(head */Users/salahuddin/Developer/*)",
+      "Bash(~/.claude/skills/tmux-layout/scripts/tmuxctl)",
+      "Bash(~/.claude/skills/tmux-layout/scripts/tmuxctl *)"
     ],
+    "ask": ["Bash(~/.claude/skills/tmux-layout/scripts/tmuxctl kill *--yes*)"],
     "deny": [
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",

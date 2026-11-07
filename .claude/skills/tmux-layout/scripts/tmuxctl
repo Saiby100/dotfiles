@@ -1,0 +1,499 @@
+#!/usr/bin/env python3
+"""tmuxctl: read and rearrange tmux deterministically, for Claude and for you.
+
+One `tmux list-panes -a` call gives the whole server; every target is resolved
+to an ID (%pane, @window, $session) before any command runs, every move keeps
+-d (focus stays put) and -s (never the marked pane), and every change prints
+the affected windows afterwards so the result is checked, not assumed.
+
+Targets (anywhere a PANE/WINDOW/SESSION is taken):
+  %12 / @4 / $1     an ID
+  me                the pane this runs in ($TMUX_PANE)
+  left right up down   my neighbour in that direction
+  session:2 / session:2.1   tmux-style index (resolved now, then IDs are used)
+  anything else     words matched against session, window name, title,
+                    command, path and tags (claude, nvim, shell); must match
+                    exactly one pane, else the candidates are listed
+
+Commands:
+  ctx [--json] [--all]   me, my neighbours, and the server tree
+  find WORDS...          panes matching the words (exit 1 if none)
+  peek PANE [-n 40]      last lines of a pane's screen
+  beside SRC DST [--left|--right|--above|--below] [--size 30%]
+  break PANE [--name N] [--session S]
+  window-to WINDOW SESSION
+  swap A B               swap two panes
+  swap-window A B
+  resize PANE [--width 70%] [--height 40%]
+  layout WINDOW even-horizontal|even-vertical|tiled|main-vertical|main-horizontal [--main 65%]
+  rename-window WINDOW NAME
+  rename-session SESSION NAME
+  new-window [--session S] [--dir D] [--name N]
+  zoom PANE
+  kill TARGET... [--yes] without --yes only prints what would go (exit 3)
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+
+SEP = "\x1f"
+FIELDS = [
+    "session_id", "session_name", "session_attached",
+    "window_id", "window_index", "window_name", "window_active",
+    "window_width", "window_height", "window_zoomed_flag",
+    "pane_id", "pane_index", "pane_active",
+    "pane_left", "pane_top", "pane_right", "pane_bottom",
+    "pane_width", "pane_height",
+    "pane_current_command", "pane_current_path", "pane_title", "pane_pid",
+    "pane_dead", "@claude_session_id", "@claude_pane_state",
+]
+INTS = {
+    "session_attached", "window_index", "window_active", "window_width",
+    "window_height", "window_zoomed_flag", "pane_index", "pane_active",
+    "pane_left", "pane_top", "pane_right", "pane_bottom", "pane_width",
+    "pane_height", "pane_dead",
+}
+SHELLS = {"zsh", "bash", "sh", "fish", "-zsh", "-bash"}
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+HOME = os.path.expanduser("~")
+
+
+class Fail(Exception):
+    def __init__(self, msg, code=2):
+        super().__init__(msg)
+        self.code = code
+
+
+def tmux(*args, check=True):
+    r = subprocess.run(["tmux", *args], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise Fail(f"tmux {' '.join(args)}: {r.stderr.strip() or 'failed'}")
+    return r.stdout
+
+
+# ---------------------------------------------------------------- snapshot
+
+def snapshot():
+    fmt = SEP.join("#{%s}" % f for f in FIELDS)
+    panes = []
+    for line in tmux("list-panes", "-a", "-F", fmt).splitlines():
+        vals = line.split(SEP)
+        if len(vals) != len(FIELDS):
+            continue
+        p = {}
+        for k, v in zip(FIELDS, vals):
+            k = k.lstrip("@")
+            p[k] = int(v) if k in INTS and v.lstrip("-").isdigit() else v
+        cmd = p["pane_current_command"]
+        p["claude"] = bool(p["claude_session_id"]) or bool(VERSION_RE.match(cmd))
+        p["tags"] = tags(p)
+        p["me"] = p["pane_id"] == os.environ.get("TMUX_PANE")
+        p["path"] = p["pane_current_path"].replace(HOME, "~", 1)
+        panes.append(p)
+    ext = {}
+    for p in panes:
+        e = ext.get(p["window_id"])
+        box = (p["pane_left"], p["pane_top"], p["pane_right"], p["pane_bottom"])
+        ext[p["window_id"]] = box if not e else (
+            min(e[0], box[0]), min(e[1], box[1]), max(e[2], box[2]), max(e[3], box[3]))
+    for p in panes:
+        p["where"] = where(p, ext[p["window_id"]])
+    return panes
+
+
+def tags(p):
+    cmd = p["pane_current_command"]
+    t = []
+    if p["claude"]:
+        t.append("claude")
+    elif cmd in ("nvim", "vim"):
+        t.append("nvim")
+    elif cmd in SHELLS:
+        t.append("shell")
+    return t
+
+
+def where(p, ext):
+    """left/right/top/bottom/whole, plus share of the window's pane area.
+    `ext` is the window's (left, top, right, bottom) over all its panes, so a
+    status line at the top (pane_top 1) needs no special case."""
+    L, T, R, B = ext
+    l, r, t, b = p["pane_left"], p["pane_right"], p["pane_top"], p["pane_bottom"]
+    h = "full" if l == L and r == R else "left" if l == L else "right" if r == R else "middle"
+    v = "full" if t == T and b == B else "top" if t == T else "bottom" if b == B else "middle"
+    pos = ("whole" if h == v == "full" else h if v == "full" else v if h == "full"
+           else f"{v}-{h}")
+    pw = round(100 * (r - l + 1) / (R - L + 1))
+    ph = round(100 * (b - t + 1) / (B - T + 1))
+    return f"{pos} {pw}%x{ph}%"
+
+
+def neighbours(panes, me):
+    """Panes sharing an edge with `me`, per direction (same window only)."""
+    out = {"left": [], "right": [], "up": [], "down": []}
+    for p in panes:
+        if p["window_id"] != me["window_id"] or p["pane_id"] == me["pane_id"]:
+            continue
+        vo = p["pane_top"] <= me["pane_bottom"] and p["pane_bottom"] >= me["pane_top"]
+        ho = p["pane_left"] <= me["pane_right"] and p["pane_right"] >= me["pane_left"]
+        if vo and p["pane_right"] + 2 == me["pane_left"]:
+            out["left"].append(p)
+        if vo and me["pane_right"] + 2 == p["pane_left"]:
+            out["right"].append(p)
+        if ho and p["pane_bottom"] + 2 == me["pane_top"]:
+            out["up"].append(p)
+        if ho and me["pane_bottom"] + 2 == p["pane_top"]:
+            out["down"].append(p)
+    for v in out.values():
+        v.sort(key=lambda p: (p["pane_top"], p["pane_left"]))
+    return out
+
+
+def my_pane(panes):
+    mid = os.environ.get("TMUX_PANE")
+    for p in panes:
+        if p["pane_id"] == mid:
+            return p
+    return None
+
+
+# ---------------------------------------------------------------- resolving
+
+def haystack(p):
+    return " ".join([
+        p["session_name"], f'{p["session_name"]}:{p["window_index"]}',
+        p["window_name"], p["pane_title"], p["pane_current_command"],
+        p["pane_current_path"], *p["tags"],
+    ]).lower()
+
+
+def match(panes, words):
+    words = [w.lower() for w in words]
+    return [p for p in panes if all(w in haystack(p) for w in words)]
+
+
+def resolve_panes(panes, target):
+    """Target -> list of panes (a window or session yields all its panes)."""
+    t = target.strip()
+    me = my_pane(panes)
+    if t in ("me", "self", "this"):
+        if not me:
+            raise Fail("not running inside tmux ($TMUX_PANE unset)")
+        return [me]
+    if t in ("left", "right", "up", "down"):
+        if not me:
+            raise Fail("not running inside tmux ($TMUX_PANE unset)")
+        n = neighbours(panes, me)[t]
+        if not n:
+            raise Fail(f"no pane {t} of {me['pane_id']}")
+        if len(n) > 1:
+            raise Fail(f"{len(n)} panes {t} of me: " + ", ".join(x["pane_id"] for x in n)
+                       + " — pick one by ID")
+        return n
+    if t.startswith("%"):
+        r = [p for p in panes if p["pane_id"] == t]
+    elif t.startswith("@"):
+        r = [p for p in panes if p["window_id"] == t]
+    elif t.startswith("$"):
+        r = [p for p in panes if p["session_id"] == t]
+    elif re.match(r"^[^:\s]+:\d+(\.\d+)?$", t):
+        s, rest = t.split(":")
+        wi, _, pi = rest.partition(".")
+        r = [p for p in panes if p["session_name"] == s and p["window_index"] == int(wi)
+             and (not pi or p["pane_index"] == int(pi))]
+    else:
+        sess = [p for p in panes if p["session_name"] == t]
+        r = sess or match(panes, t.split())
+        if len(r) > 1 and not sess:
+            raise Fail(f'"{t}" matches {len(r)} panes:\n' + "\n".join(row(p) for p in r)
+                       + "\nuse an ID")
+    if not r:
+        raise Fail(f'no pane, window or session matches "{t}"', 1)
+    return r
+
+
+def one_pane(panes, target):
+    r = resolve_panes(panes, target)
+    if len(r) != 1:
+        raise Fail(f'"{target}" is {len(r)} panes; name one pane')
+    return r[0]
+
+
+def one_window(panes, target):
+    r = resolve_panes(panes, target)
+    ids = {p["window_id"] for p in r}
+    if len(ids) != 1:
+        raise Fail(f'"{target}" spans {len(ids)} windows; name one window')
+    return r[0]
+
+
+def one_session(panes, target):
+    r = resolve_panes(panes, target)
+    ids = {p["session_id"] for p in r}
+    if len(ids) != 1:
+        raise Fail(f'"{target}" spans {len(ids)} sessions; name one session')
+    return r[0]
+
+
+# ---------------------------------------------------------------- printing
+
+def row(p, indent="    "):
+    flags = ""
+    if p["me"]:
+        flags += " ME"
+    if p["pane_active"]:
+        flags += " *"
+    tag = ",".join(p["tags"])
+    if p["claude"] and p["claude_pane_state"]:
+        tag += f"[{p['claude_pane_state']}]"
+    cmd = p["pane_current_command"] if not p["claude"] else "claude"
+    return (f'{indent}{p["pane_id"]:<5} .{p["pane_index"]}  {p["where"]:<21} '
+            f'{cmd:<10} {tag:<14} "{p["pane_title"]}"  {p["path"]}{flags}')
+
+
+def tree(panes, only_windows=None):
+    lines = []
+    seen_s, seen_w = set(), set()
+    for p in panes:
+        if only_windows and p["window_id"] not in only_windows:
+            continue
+        if p["session_id"] not in seen_s:
+            seen_s.add(p["session_id"])
+            att = " (attached)" if p["session_attached"] else ""
+            lines.append(f'{p["session_name"]} {p["session_id"]}{att}')
+        if p["window_id"] not in seen_w:
+            seen_w.add(p["window_id"])
+            act = " *" if p["window_active"] else ""
+            zoom = " zoomed" if p["window_zoomed_flag"] else ""
+            lines.append(f'  {p["window_id"]:<4} {p["window_index"]}:{p["window_name"]}'
+                         f'  {p["window_width"]}x{p["window_height"]}{act}{zoom}')
+        lines.append(row(p))
+    return "\n".join(lines)
+
+
+def ctx_text(panes):
+    me = my_pane(panes)
+    out = []
+    if me:
+        out.append(f'me: {me["pane_id"]} at {me["session_name"]}:{me["window_index"]}.'
+                   f'{me["pane_index"]} ({me["window_id"]} "{me["window_name"]}", {me["where"]})')
+        n = neighbours(panes, me)
+        parts = [f'{d}={" ".join(x["pane_id"] for x in v)}' for d, v in n.items() if v]
+        out.append("neighbours: " + (", ".join(parts) if parts else "none (alone in window)"))
+    else:
+        out.append("me: not inside tmux")
+    out.append("")
+    out.append(tree(panes))
+    return "\n".join(out)
+
+
+def show_after(window_ids):
+    panes = snapshot()
+    live = {p["window_id"] for p in panes}
+    ids = [w for w in window_ids if w in live]
+    print("after:")
+    print(tree(panes, set(ids)) if ids else "  (windows gone)")
+
+
+# ---------------------------------------------------------------- commands
+
+def cmd_ctx(a):
+    panes = snapshot()
+    if a.json:
+        me = my_pane(panes)
+        n = {d: [x["pane_id"] for x in v] for d, v in neighbours(panes, me).items()} if me else {}
+        print(json.dumps({"me": me and me["pane_id"], "neighbours": n, "panes": panes}, indent=1))
+    else:
+        print(ctx_text(panes))
+
+
+def cmd_find(a):
+    r = match(snapshot(), a.words)
+    if not r:
+        raise Fail("no match", 1)
+    print("\n".join(row(p, "") for p in r))
+
+
+def cmd_peek(a):
+    p = one_pane(snapshot(), a.pane)
+    print(f'--- {p["pane_id"]} {p["pane_current_command"]} "{p["pane_title"]}"')
+    text = tmux("capture-pane", "-p", "-J", "-t", p["pane_id"])
+    lines = text.rstrip("\n").splitlines()
+    print("\n".join(lines[-a.n:]))
+
+
+def cmd_beside(a):
+    panes = snapshot()
+    s, d = one_pane(panes, a.src), one_pane(panes, a.dst)
+    if s["pane_id"] == d["pane_id"]:
+        raise Fail("source and destination are the same pane")
+    side = a.side or "right"
+    args = ["join-pane", "-d", "-h" if side in ("left", "right") else "-v"]
+    if side in ("left", "above"):
+        args.append("-b")
+    if a.size:
+        args += ["-l", a.size]
+    tmux(*args, "-s", s["pane_id"], "-t", d["pane_id"])
+    show_after([d["window_id"], s["window_id"]])
+
+
+def cmd_break(a):
+    panes = snapshot()
+    p = one_pane(panes, a.pane)
+    args = ["break-pane", "-d", "-s", p["pane_id"], "-P", "-F", "#{window_id}"]
+    if a.name:
+        args += ["-n", a.name]
+    if a.session:
+        s = one_session(panes, a.session)
+        args += ["-t", f'{s["session_id"]}:']
+    wid = tmux(*args).strip()
+    show_after([p["window_id"], wid])
+
+
+def cmd_window_to(a):
+    panes = snapshot()
+    w, s = one_window(panes, a.window), one_session(panes, a.session)
+    tmux("move-window", "-d", "-s", w["window_id"], "-t", f'{s["session_id"]}:')
+    show_after([w["window_id"]])
+
+
+def cmd_swap(a):
+    panes = snapshot()
+    x, y = one_pane(panes, a.a), one_pane(panes, a.b)
+    tmux("swap-pane", "-d", "-s", x["pane_id"], "-t", y["pane_id"])
+    show_after([x["window_id"], y["window_id"]])
+
+
+def cmd_swap_window(a):
+    panes = snapshot()
+    x, y = one_window(panes, a.a), one_window(panes, a.b)
+    tmux("swap-window", "-d", "-s", x["window_id"], "-t", y["window_id"])
+    show_after([x["window_id"], y["window_id"]])
+
+
+def cmd_resize(a):
+    p = one_pane(snapshot(), a.pane)
+    if not (a.width or a.height):
+        raise Fail("give --width and/or --height")
+    args = ["resize-pane", "-t", p["pane_id"]]
+    if a.width:
+        args += ["-x", a.width]
+    if a.height:
+        args += ["-y", a.height]
+    tmux(*args)
+    show_after([p["window_id"]])
+
+
+def cmd_layout(a):
+    w = one_window(snapshot(), a.window)
+    wid = w["window_id"]
+    if a.main:
+        opt = "main-pane-width" if a.preset == "main-vertical" else "main-pane-height"
+        tmux("set-option", "-w", "-t", wid, opt, a.main)
+    tmux("select-layout", "-t", wid, a.preset)
+    show_after([wid])
+
+
+def cmd_rename_window(a):
+    w = one_window(snapshot(), a.window)
+    tmux("rename-window", "-t", w["window_id"], a.name)
+    show_after([w["window_id"]])
+
+
+def cmd_rename_session(a):
+    s = one_session(snapshot(), a.session)
+    tmux("rename-session", "-t", s["session_id"], a.name)
+    print(f'{s["session_id"]} renamed to {a.name}')
+
+
+def cmd_new_window(a):
+    panes = snapshot()
+    args = ["new-window", "-d", "-P", "-F", "#{window_id}"]
+    if a.session:
+        args += ["-t", f'{one_session(panes, a.session)["session_id"]}:']
+    if a.dir:
+        args += ["-c", os.path.expanduser(a.dir)]
+    if a.name:
+        args += ["-n", a.name]
+    show_after([tmux(*args).strip()])
+
+
+def cmd_zoom(a):
+    p = one_pane(snapshot(), a.pane)
+    tmux("resize-pane", "-Z", "-t", p["pane_id"])
+    show_after([p["window_id"]])
+
+
+def cmd_kill(a):
+    panes = snapshot()
+    doomed = {}
+    for t in a.targets:
+        for p in resolve_panes(panes, t):
+            doomed[p["pane_id"]] = p
+    victims = list(doomed.values())
+    me = os.environ.get("TMUX_PANE")
+    if me in doomed:
+        raise Fail(f"refusing: {me} (this Claude) would be killed")
+    print(f"would kill {len(victims)} pane(s):" if not a.yes else f"killing {len(victims)} pane(s):")
+    for p in victims:
+        warn = "  <-- " + ", ".join(p["tags"]) if set(p["tags"]) & {"claude", "nvim"} else ""
+        if not warn and p["pane_current_command"] not in SHELLS:
+            warn = "  <-- running " + p["pane_current_command"]
+        print(row(p) + warn)
+    if not a.yes:
+        print("re-run with --yes once the user confirms")
+        sys.exit(3)
+    wins = {p["window_id"] for p in victims}
+    for p in victims:
+        tmux("kill-pane", "-t", p["pane_id"], check=False)
+    show_after(sorted(wins))
+
+
+# ---------------------------------------------------------------- main
+
+def main():
+    ap = argparse.ArgumentParser(prog="tmuxctl", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd")
+
+    c = sub.add_parser("ctx"); c.add_argument("--json", action="store_true"); c.set_defaults(f=cmd_ctx)
+    c = sub.add_parser("find"); c.add_argument("words", nargs="+"); c.set_defaults(f=cmd_find)
+    c = sub.add_parser("peek"); c.add_argument("pane"); c.add_argument("-n", type=int, default=40); c.set_defaults(f=cmd_peek)
+    c = sub.add_parser("beside"); c.add_argument("src"); c.add_argument("dst")
+    g = c.add_mutually_exclusive_group()
+    for s in ("left", "right", "above", "below"):
+        g.add_argument(f"--{s}", dest="side", action="store_const", const=s)
+    c.add_argument("--size"); c.set_defaults(f=cmd_beside)
+    c = sub.add_parser("break"); c.add_argument("pane"); c.add_argument("--name"); c.add_argument("--session"); c.set_defaults(f=cmd_break)
+    c = sub.add_parser("window-to"); c.add_argument("window"); c.add_argument("session"); c.set_defaults(f=cmd_window_to)
+    c = sub.add_parser("swap"); c.add_argument("a"); c.add_argument("b"); c.set_defaults(f=cmd_swap)
+    c = sub.add_parser("swap-window"); c.add_argument("a"); c.add_argument("b"); c.set_defaults(f=cmd_swap_window)
+    c = sub.add_parser("resize"); c.add_argument("pane"); c.add_argument("--width"); c.add_argument("--height"); c.set_defaults(f=cmd_resize)
+    c = sub.add_parser("layout"); c.add_argument("window")
+    c.add_argument("preset", choices=["even-horizontal", "even-vertical", "tiled", "main-vertical", "main-horizontal"])
+    c.add_argument("--main"); c.set_defaults(f=cmd_layout)
+    c = sub.add_parser("rename-window"); c.add_argument("window"); c.add_argument("name"); c.set_defaults(f=cmd_rename_window)
+    c = sub.add_parser("rename-session"); c.add_argument("session"); c.add_argument("name"); c.set_defaults(f=cmd_rename_session)
+    c = sub.add_parser("new-window"); c.add_argument("--session"); c.add_argument("--dir"); c.add_argument("--name"); c.set_defaults(f=cmd_new_window)
+    c = sub.add_parser("zoom"); c.add_argument("pane"); c.set_defaults(f=cmd_zoom)
+    c = sub.add_parser("kill"); c.add_argument("targets", nargs="+"); c.add_argument("--yes", action="store_true"); c.set_defaults(f=cmd_kill)
+
+    a = ap.parse_args()
+    if not a.cmd:
+        a = ap.parse_args(["ctx"])
+    if not os.environ.get("TMUX") and not subprocess.run(["tmux", "has-session"], capture_output=True).returncode == 0:
+        print("tmuxctl: no tmux server", file=sys.stderr)
+        sys.exit(2)
+    try:
+        a.f(a)
+    except Fail as e:
+        print(f"tmuxctl: {e}", file=sys.stderr)
+        sys.exit(e.code)
+
+
+if __name__ == "__main__":
+    main()
