@@ -30,6 +30,12 @@ Commands:
   rename-session SESSION NAME
   new-window [--session S] [--dir D] [--name N]
   zoom PANE
+  focus TARGET           move the user's view to that window (only when asked)
+  spawn --window NAME --task TEXT [--dir D] [--session S] [--max 4] -- CMD...
+                         run CMD in a new pane labelled TEXT (@task) in window
+                         NAME, or NAME-2, NAME-3... once NAME holds --max
+                         labelled panes; prints the new pane ID first
+  task PANE [TEXT]       set (or with no TEXT clear) a pane's @task label
   kill TARGET... [--yes] without --yes only prints what would go (exit 3)
 """
 
@@ -49,7 +55,7 @@ FIELDS = [
     "pane_left", "pane_top", "pane_right", "pane_bottom",
     "pane_width", "pane_height",
     "pane_current_command", "pane_current_path", "pane_title", "pane_pid",
-    "pane_dead", "@claude_session_id", "@claude_pane_state",
+    "pane_dead", "@claude_session_id", "@claude_pane_state", "@task",
 ]
 INTS = {
     "session_attached", "window_index", "window_active", "window_width",
@@ -166,7 +172,7 @@ def my_pane(panes):
 def haystack(p):
     return " ".join([
         p["session_name"], f'{p["session_name"]}:{p["window_index"]}',
-        p["window_name"], p["pane_title"], p["pane_current_command"],
+        p["window_name"], p["pane_title"], p["task"], p["pane_current_command"],
         p["pane_current_path"], *p["tags"],
     ]).lower()
 
@@ -251,8 +257,9 @@ def row(p, indent="    "):
     if p["claude"] and p["claude_pane_state"]:
         tag += f"[{p['claude_pane_state']}]"
     cmd = p["pane_current_command"] if not p["claude"] else "claude"
+    label = f'task "{p["task"]}"' if p["task"] else f'"{p["pane_title"]}"'
     return (f'{indent}{p["pane_id"]:<5} .{p["pane_index"]}  {p["where"]:<21} '
-            f'{cmd:<10} {tag:<14} "{p["pane_title"]}"  {p["path"]}{flags}')
+            f'{cmd:<10} {tag:<14} {label}  {p["path"]}{flags}')
 
 
 def tree(panes, only_windows=None):
@@ -428,6 +435,72 @@ def cmd_zoom(a):
     show_after([p["window_id"]])
 
 
+def cmd_focus(a):
+    w = one_window(snapshot(), a.target)
+    if os.environ.get("TMUX"):
+        tmux("switch-client", "-t", w["window_id"])
+    else:
+        tmux("select-window", "-t", w["window_id"])
+    show_after([w["window_id"]])
+
+
+def lay_out(wid):
+    """Labelled panes are workers. An unlabelled pane (the orchestrator) gets
+    the left 35% with the workers stacked beside it; workers alone are tiled."""
+    panes = [p for p in snapshot() if p["window_id"] == wid]
+    if any(not p["task"] for p in panes) and len(panes) > 1:
+        tmux("set-option", "-w", "-t", wid, "main-pane-width", "35%")
+        tmux("select-layout", "-t", wid, "main-vertical")
+    else:
+        tmux("select-layout", "-t", wid, "tiled")
+
+
+def cmd_spawn(a):
+    cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
+    if not cmd:
+        raise Fail("give the command after --")
+    if a.max < 1:
+        raise Fail("--max must be at least 1")
+    panes = snapshot()
+    if a.session:
+        sess = one_session(panes, a.session)
+    else:
+        sess = my_pane(panes)
+        if not sess:
+            raise Fail("not inside tmux; pass --session")
+    sid = sess["session_id"]
+    base = ["-c", os.path.expanduser(a.dir)] if a.dir else []
+    out = ["-P", "-F", "#{pane_id}" + SEP + "#{window_id}"]
+    k = 1
+    while True:
+        name = a.window if k == 1 else f"{a.window}-{k}"
+        here = [p for p in panes if p["session_id"] == sid and p["window_name"] == name]
+        if not here:
+            r = tmux("new-window", "-d", "-t", f"{sid}:", "-n", name, *base, *out, *cmd)
+            break
+        if sum(1 for p in here if p["task"]) < a.max:
+            # Split the biggest pane so the split has room; lay_out evens it after.
+            big = max(here, key=lambda p: p["pane_width"] * p["pane_height"])
+            flag = "-h" if big["pane_width"] >= 2 * big["pane_height"] else "-v"
+            r = tmux("split-window", "-d", flag, "-t", big["pane_id"], *base, *out, *cmd)
+            break
+        k += 1
+    pid, wid = r.strip().split(SEP)
+    tmux("set-option", "-p", "-t", pid, "@task", a.task)
+    lay_out(wid)
+    print(pid)
+    show_after([wid])
+
+
+def cmd_task(a):
+    p = one_pane(snapshot(), a.pane)
+    if a.text:
+        tmux("set-option", "-p", "-t", p["pane_id"], "@task", a.text)
+    else:
+        tmux("set-option", "-pu", "-t", p["pane_id"], "@task")
+    print(f'{p["pane_id"]} task: {a.text or "(cleared)"}')
+
+
 def cmd_kill(a):
     panes = snapshot()
     doomed = {}
@@ -480,6 +553,11 @@ def main():
     c = sub.add_parser("rename-session"); c.add_argument("session"); c.add_argument("name"); c.set_defaults(f=cmd_rename_session)
     c = sub.add_parser("new-window"); c.add_argument("--session"); c.add_argument("--dir"); c.add_argument("--name"); c.set_defaults(f=cmd_new_window)
     c = sub.add_parser("zoom"); c.add_argument("pane"); c.set_defaults(f=cmd_zoom)
+    c = sub.add_parser("focus"); c.add_argument("target"); c.set_defaults(f=cmd_focus)
+    c = sub.add_parser("spawn"); c.add_argument("--window", required=True); c.add_argument("--task", required=True)
+    c.add_argument("--dir"); c.add_argument("--session"); c.add_argument("--max", type=int, default=4)
+    c.add_argument("command", nargs=argparse.REMAINDER); c.set_defaults(f=cmd_spawn)
+    c = sub.add_parser("task"); c.add_argument("pane"); c.add_argument("text", nargs="?", default=""); c.set_defaults(f=cmd_task)
     c = sub.add_parser("kill"); c.add_argument("targets", nargs="+"); c.add_argument("--yes", action="store_true"); c.set_defaults(f=cmd_kill)
 
     a = ap.parse_args()

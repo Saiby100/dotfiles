@@ -70,7 +70,29 @@ tmuxctl zoom %5
 - Only move the user's view (`tmux select-window`, `switch-client`) when they
   ask to go somewhere.
 
-## 4. Killing needs a yes
+## 4. Worker panes
+
+Used by `/orchestrate` to run Claude sessions the user can watch.
+
+```sh
+tmuxctl spawn --window orch-qibla --task "03 · Qibla compass" --dir ~/x -- claude "<prompt>"
+tmuxctl task %31 "03 · Qibla compass · queued"   # relabel; no text clears it
+tmuxctl focus orch-qibla                         # move the user's view there
+```
+
+- `spawn` prints the new pane ID on its first line. It labels the pane with
+  the pane option `@task`, which the pane border shows (Claude Code rewrites
+  pane titles, so titles can't be used as labels).
+- Labelled panes count as workers. A window holds at most `--max` (default
+  4); after that `spawn` fills `orch-qibla-2`, `-3`, and so on.
+- A window with one unlabelled pane (the orchestrator) gets `main-vertical`:
+  that pane on the left at 35%, workers stacked to its right. It must be the
+  first pane in the window, which it is after `tmuxctl break me`. Windows of
+  workers only are tiled.
+- `focus` moves the user's view, so use it only when they asked to see the
+  window (starting `/orchestrate` counts).
+
+## 5. Killing needs a yes
 
 ```sh
 tmuxctl kill %5 @4          # preview only: lists every pane that would go, exits 3
@@ -90,7 +112,7 @@ Don't ask "kill it?" in chat as well; that makes them answer twice. If they
 decline the dialog, stop and don't retry. If `--yes` runs without a dialog
 (the `ask` rule is gone), say so. `tmuxctl` refuses to kill its own pane.
 
-## 5. Report
+## 6. Report
 
 Each change prints an `after:` tree. From it, say in one or two lines what now
 sits where. If something failed, quote the `tmuxctl:` error and say what is
